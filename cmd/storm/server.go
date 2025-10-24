@@ -5,7 +5,7 @@ import (
 	"fmt"
 	deluge "github.com/gdm85/go-libdeluge"
 	"github.com/jessevdk/go-flags"
-	storm "github.com/relvacode/storm"
+	storm "github.com/BrianVia/storm"
 	"go.uber.org/zap"
 	"net/http"
 	"os"
