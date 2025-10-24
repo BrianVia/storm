@@ -1,4 +1,4 @@
-module github.com/relvacode/storm
+module github.com/BrianVia/storm
 
 go 1.17
 
