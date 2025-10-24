@@ -1,11 +1,12 @@
 import {Component} from '@angular/core';
 import {BehaviorSubject, combineLatest, EMPTY, forkJoin, Observable, of, timer} from 'rxjs';
-import {catchError, filter, mergeMap, switchMap} from 'rxjs/operators';
+import {catchError, filter, mergeMap, switchMap, debounceTime, distinctUntilChanged, skip} from 'rxjs/operators';
 import {ApiService, DiskSpace, Hash, SessionStatus, State, Torrent, ViewTorrent} from './api.service';
 import {SelectItem} from 'primeng/api';
 import {FocusService} from './focus.service';
 import {DialogService} from 'primeng/dynamicdialog';
 import {PluginEnableComponent} from './components/plugin-enable/plugin-enable.component';
+import {ActivatedRoute, Router} from '@angular/router';
 
 type OptionalState = State | null;
 
@@ -16,8 +17,33 @@ type OptionalState = State | null;
   styleUrls: ['./app.component.scss'],
 })
 export class AppComponent {
-  sortByField: keyof Torrent = null;
-  sortReverse = false;
+  private _searchText$ = new BehaviorSubject<string>('');
+  private _sortByField$ = new BehaviorSubject<keyof Torrent>(null);
+  private _sortReverse$ = new BehaviorSubject<boolean>(false);
+
+  get searchText(): string {
+    return this._searchText$.value;
+  }
+
+  set searchText(value: string) {
+    this._searchText$.next(value || '');
+  }
+
+  get sortByField(): keyof Torrent {
+    return this._sortByField$.value;
+  }
+
+  set sortByField(value: keyof Torrent) {
+    this._sortByField$.next(value);
+  }
+
+  get sortReverse(): boolean {
+    return this._sortReverse$.value;
+  }
+
+  set sortReverse(value: boolean) {
+    this._sortReverse$.next(value);
+  }
 
   sortOptions: SelectItem<keyof Torrent>[] = [
     {
@@ -85,8 +111,6 @@ export class AppComponent {
     }
   ];
 
-  searchText: string;
-
   // All torrent hashes within the current view
   hashesInView: string[];
   // Current view is empty
@@ -112,9 +136,99 @@ export class AppComponent {
 
   get$: BehaviorSubject<OptionalState>;
 
-  constructor(private api: ApiService, private focus: FocusService, private dialogService: DialogService) {
+  constructor(
+    private api: ApiService,
+    private focus: FocusService,
+    private dialogService: DialogService,
+    private router: Router,
+    private route: ActivatedRoute
+  ) {
     this.get$ = new BehaviorSubject<OptionalState>(null);
+    this.initializeFromUrl();
+    this.syncStateToUrl();
     this.refreshInterval(2000);
+  }
+
+  /**
+   * Initialize component state from URL query parameters
+   */
+  private initializeFromUrl(): void {
+    const params = this.route.snapshot.queryParams;
+
+    // Initialize search text
+    if (params['q']) {
+      this.searchText = params['q'];
+    }
+
+    // Initialize filter state
+    if (params['filter']) {
+      const filterValue = params['filter'] as State;
+      const isValidState = this.filterStatesOptions.some(opt => opt.value === filterValue);
+      if (isValidState) {
+        this.get$.next(filterValue);
+      }
+    }
+
+    // Initialize sort field
+    if (params['sort']) {
+      const sortValue = params['sort'] as keyof Torrent;
+      const isValidSort = this.sortOptions.some(opt => opt.value === sortValue);
+      if (isValidSort) {
+        this.sortByField = sortValue;
+      }
+    }
+
+    // Initialize sort direction
+    if (params['reverse']) {
+      this.sortReverse = params['reverse'] === 'true';
+    }
+  }
+
+  /**
+   * Sync component state changes to URL query parameters
+   */
+  private syncStateToUrl(): void {
+    // Combine all state observables and update URL
+    combineLatest([
+      this._searchText$.pipe(distinctUntilChanged(), debounceTime(300)),
+      this.get$.pipe(distinctUntilChanged()),
+      this._sortByField$.pipe(distinctUntilChanged()),
+      this._sortReverse$.pipe(distinctUntilChanged())
+    ]).pipe(
+      skip(1) // Skip initial emission to avoid overwriting URL on load
+    ).subscribe(([search, filterState, sortField, reverse]) => {
+      this.updateUrl(search, filterState, sortField, reverse);
+    });
+  }
+
+  /**
+   * Update URL with current state
+   */
+  private updateUrl(search: string, filterState: OptionalState, sortField: keyof Torrent, reverse: boolean): void {
+    const queryParams: any = {};
+
+    if (search) {
+      queryParams.q = search;
+    }
+
+    if (filterState) {
+      queryParams.filter = filterState;
+    }
+
+    if (sortField) {
+      queryParams.sort = sortField;
+    }
+
+    if (reverse) {
+      queryParams.reverse = 'true';
+    }
+
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams,
+      queryParamsHandling: 'merge',
+      replaceUrl: true
+    });
   }
 
 
